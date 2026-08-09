@@ -587,7 +587,10 @@ function stepPhysics(){
         const fnx=fdx/fdist, fny=fdy/fdist;
         b.x += fnx*(fmin-fdist); b.y += fny*(fmin-fdist);
         const fvn=b.vx*fnx+b.vy*fny;
-        if(fvn<0){ b.vx -= fvn*fnx*1.3; b.vy -= fvn*fny*1.3; }
+        if(fvn<0){
+          if(-fvn < 1.4){ b.vx=0; b.vy=0; }
+          else { b.vx -= fvn*fnx*1.3; b.vy -= fvn*fny*1.3; }
+        }
       }
     }
   }
@@ -1673,6 +1676,10 @@ document.getElementById("importFile").addEventListener("change", (e)=>{
 });
 
 /* ---------------- init ---------------- */
+document.addEventListener("selectstart", (e)=>{ if(!["INPUT","TEXTAREA"].includes(e.target.tagName)) e.preventDefault(); });
+document.addEventListener("contextmenu", (e)=>{ if(!["INPUT","TEXTAREA"].includes(e.target.tagName)) e.preventDefault(); });
+canvas.addEventListener("contextmenu", (e)=> e.preventDefault());
+
 function init(){
   resizeCanvas();
   updateFabZone();
