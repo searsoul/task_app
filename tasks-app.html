@@ -175,6 +175,7 @@ main{position:relative; flex:1; overflow:hidden; background:var(--bg);}
   background:var(--surface); border:1.5px solid var(--line); color:var(--ink-dim); font-size:13.5px;
 }
 .chip .cdot{width:10px;height:10px;border-radius:50%;}
+.chip .cedit{opacity:0.55; font-size:12px; margin-left:2px;}
 .chip.selected{border-color:var(--ink); color:var(--ink); background:var(--surface-2);}
 .chip.add-chip{color:var(--ink-faint); border-style:dashed;}
 .size-row{display:flex; align-items:flex-end; justify-content:space-around; padding:10px 10px 0;}
@@ -300,7 +301,7 @@ main{position:relative; flex:1; overflow:hidden; background:var(--bg);}
 
 <div class="sheet" id="addSheet">
   <div class="sheet-handle"></div>
-  <h2>Новое дело</h2>
+  <h2 id="addSheetTitle">Новое дело</h2>
   <input type="text" id="taskTitleInput" placeholder="Что нужно сделать?" maxlength="60">
   <div id="titleCounter">0 / 60</div>
   <div class="field-label">Категория</div>
@@ -323,6 +324,7 @@ main{position:relative; flex:1; overflow:hidden; background:var(--bg);}
   <div class="sheet-handle"></div>
   <div id="detailTitle"></div>
   <div id="detailMeta"></div>
+  <button class="secondary-btn" id="detailEditBtn" style="margin-top:0;">Изменить</button>
   <button class="primary-btn" id="detailCompleteBtn">Выполнить ✓</button>
   <button class="secondary-btn danger-btn" id="detailDeleteBtn">Удалить</button>
   <button class="secondary-btn" id="detailCancelBtn">Отмена</button>
@@ -1095,6 +1097,8 @@ const addSheet = document.getElementById("addSheet");
 const detailSheet = document.getElementById("detailSheet");
 let selectedCategoryId = null;
 let selectedSize = 2;
+let editingCategoryId = null;
+let editingTaskId = null;
 
 function openSheet(sheet){ backdrop.classList.add("show"); sheet.classList.add("show"); }
 function closeSheets(){ backdrop.classList.remove("show"); addSheet.classList.remove("show"); detailSheet.classList.remove("show"); }
@@ -1106,14 +1110,35 @@ function renderCategoryChips(){
   DATA.categories.forEach(cat=>{
     const chip = document.createElement("div");
     chip.className = "chip" + (cat.id===selectedCategoryId ? " selected":"");
-    chip.innerHTML = `<span class="cdot" style="background:${cat.color}"></span>${cat.name}`;
-    chip.addEventListener("click", ()=>{ selectedCategoryId = cat.id; renderCategoryChips(); validateAddForm(); });
+    chip.innerHTML = `<span class="cdot" style="background:${cat.color}"></span>${cat.name}<span class="cedit" data-cat="${cat.id}">&#9998;</span>`;
+    chip.addEventListener("click", (e)=>{
+      if(e.target.classList.contains("cedit")) return;
+      selectedCategoryId = cat.id; renderCategoryChips(); validateAddForm();
+    });
     wrap.appendChild(chip);
+  });
+  wrap.querySelectorAll(".cedit").forEach(el=>{
+    el.addEventListener("click", (e)=>{
+      e.stopPropagation();
+      const cat = DATA.categories.find(c=>c.id===el.dataset.cat);
+      if(!cat) return;
+      editingCategoryId = cat.id;
+      document.getElementById("newCatName").value = cat.name;
+      document.getElementById("newCatColor").value = cat.color;
+      document.getElementById("newCatSave").textContent = "Сохранить";
+      document.getElementById("newCatRow").style.display = "flex";
+    });
   });
   const addChip = document.createElement("div");
   addChip.className = "chip add-chip";
   addChip.textContent = "+ своя";
-  addChip.addEventListener("click", ()=>{ document.getElementById("newCatRow").style.display="flex"; });
+  addChip.addEventListener("click", ()=>{
+    editingCategoryId = null;
+    document.getElementById("newCatName").value = "";
+    document.getElementById("newCatColor").value = "#7C5CBF";
+    document.getElementById("newCatSave").textContent = "Ок";
+    document.getElementById("newCatRow").style.display="flex";
+  });
   wrap.appendChild(addChip);
 }
 
@@ -1121,9 +1146,23 @@ document.getElementById("newCatSave").addEventListener("click", ()=>{
   const name = document.getElementById("newCatName").value.trim();
   const color = document.getElementById("newCatColor").value;
   if(!name) return;
-  const cat = {id: uid(), name, color};
-  DATA.categories.push(cat); saveData();
-  selectedCategoryId = cat.id;
+  if(editingCategoryId){
+    const cat = DATA.categories.find(c=>c.id===editingCategoryId);
+    if(cat){
+      cat.name = name; cat.color = color;
+      balls.forEach(b=>{
+        const t = DATA.tasks.find(x=>x.id===b.taskId);
+        if(t && t.categoryId===editingCategoryId) b.color = color;
+      });
+    }
+    editingCategoryId = null;
+    document.getElementById("newCatSave").textContent = "Ок";
+  } else {
+    const cat = {id: uid(), name, color};
+    DATA.categories.push(cat); saveData();
+    selectedCategoryId = cat.id;
+  }
+  saveData();
   document.getElementById("newCatName").value = "";
   document.getElementById("newCatRow").style.display = "none";
   renderCategoryChips(); validateAddForm();
@@ -1150,6 +1189,9 @@ function validateAddForm(){
 }
 
 document.getElementById("fab").addEventListener("click", ()=>{
+  editingTaskId = null;
+  document.getElementById("addSheetTitle").textContent = "Новое дело";
+  document.getElementById("addTaskBtn").textContent = "Закинуть в резервуар";
   titleInput.value = "";
   selectedCategoryId = DATA.categories[0] ? DATA.categories[0].id : null;
   selectedSize = 2;
@@ -1161,15 +1203,63 @@ document.getElementById("fab").addEventListener("click", ()=>{
   setTimeout(()=>titleInput.focus(), 250);
 });
 
+function openEditSheet(task){
+  editingTaskId = task.id;
+  document.getElementById("addSheetTitle").textContent = "Изменить дело";
+  document.getElementById("addTaskBtn").textContent = "Сохранить изменения";
+  titleInput.value = task.title;
+  selectedCategoryId = task.categoryId;
+  selectedSize = task.size;
+  document.querySelectorAll(".size-opt").forEach(x=>x.classList.toggle("selected", x.dataset.size===String(task.size)));
+  renderCategoryChips();
+  validateAddForm();
+  updateTitleCounter();
+  openSheet(addSheet);
+  setTimeout(()=>titleInput.focus(), 250);
+}
+
 document.getElementById("addTaskBtn").addEventListener("click", ()=>{
   const title = titleInput.value.trim();
   if(!title || !selectedCategoryId) return;
+
+  if(editingTaskId){
+    const task = DATA.tasks.find(t=>t.id===editingTaskId);
+    if(task){
+      task.title = title;
+      task.categoryId = selectedCategoryId;
+      task.size = selectedSize;
+      saveData();
+      const ball = balls.find(b=>b.taskId===task.id);
+      if(ball){
+        ball.title = title;
+        ball.color = getCategory(selectedCategoryId).color;
+        ball.r = radiusForSize(selectedSize);
+      }
+    }
+    editingTaskId = null;
+    document.getElementById("addSheetTitle").textContent = "Новое дело";
+    document.getElementById("addTaskBtn").textContent = "Закинуть в резервуар";
+    closeSheets();
+    refreshHeaderSub();
+    showToast("Изменения сохранены");
+    return;
+  }
+
   const task = { id: uid(), title, categoryId: selectedCategoryId, size: selectedSize, status:"active", createdAt: new Date().toISOString(), completedAt: null };
   DATA.tasks.push(task); saveData();
   trySpawnOrQueue(task);
   closeSheets();
   updateEmptyState(); refreshHeaderSub();
   showToast(balls.find(b=>b.taskId===task.id) ? "Дело закинуто в резервуар" : "Банка полна — дело подождёт своей очереди сверху");
+});
+
+document.getElementById("detailEditBtn").addEventListener("click", ()=>{
+  if(!detailBallRef) return;
+  const taskId = detailBallRef.queuedTaskId || detailBallRef.taskId;
+  const task = DATA.tasks.find(t=>t.id===taskId);
+  if(!task) return;
+  closeSheets();
+  openEditSheet(task);
 });
 
 /* ---------------- detail sheet (long-press) ---------------- */
