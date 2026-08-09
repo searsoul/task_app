@@ -28,7 +28,8 @@
   --safe-top:env(safe-area-inset-top,0px);
   --safe-bottom:env(safe-area-inset-bottom,0px);
 }
-*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent; -webkit-touch-callout:none;}
+input, textarea{-webkit-user-select:text; user-select:text; -webkit-touch-callout:default;}
 html{height:100%; background:#1E1A17;}
 body{height:100%; overscroll-behavior:none;
   margin:0; background:var(--bg); color:var(--ink);
@@ -60,7 +61,8 @@ main{position:relative; flex:1; overflow:hidden; background:var(--bg);}
 .screen.active{opacity:1; pointer-events:auto;}
 
 #screen-reservoir{display:flex; flex-direction:column;}
-#jarCanvas{flex:1; width:100%; height:100%; touch-action:none; background:var(--bg);}
+#jarCanvas{flex:1; width:100%; height:100%; touch-action:none; background:var(--bg);
+  -webkit-touch-callout:none; -webkit-user-select:none; user-select:none;}
 #emptyState{
   position:absolute; inset:0; display:none; flex-direction:column; align-items:center;
   padding:0 40px; padding-top:30%; pointer-events:none;
@@ -467,7 +469,7 @@ window.addEventListener("resize", ()=>{ resizeCanvas(); updateFabZone(); });
 
 function radiusForSize(size){
   const jw = jar.right-jar.left;
-  const base = Math.max(15, Math.min(32, jw*0.082));
+  const base = Math.max(12, Math.min(25, jw*0.066));
   if(size===1) return base*0.7;
   if(size===3) return base*1.3;
   return base*0.95;
@@ -590,7 +592,7 @@ function stepPhysics(){
     }
   }
   // ball-ball collisions — mass-aware (glass marbles: bigger = heavier), 2 solver passes for stability
-  for(let iter=0; iter<2; iter++){
+  for(let iter=0; iter<4; iter++){
     for(let i=0;i<balls.length;i++){
       for(let j=i+1;j<balls.length;j++){
         const a=balls[i], b=balls[j];
@@ -744,7 +746,7 @@ function drawJar(){
     ctx2d.beginPath(); ctx2d.arc(b.x,b.y,r,0,Math.PI*2); ctx2d.fill();
 
     // 2. text written on that back wall
-    if(!b.popping && r>9){
+    if(!b.popping && r>7){
       drawBallText(b, r, alpha);
     }
 
@@ -835,14 +837,23 @@ function wrapBallText(ctx, text, maxWidth, maxLines){
 }
 
 function drawBallText(b, r, alpha){
-  const fontSize = Math.max(10, Math.min(17, r*0.3));
   const fontStack = `"Noteworthy","Chalkboard SE","Marker Felt",-apple-system,system-ui,sans-serif`;
+  const maxWidth = r*1.5;
+  const maxHeight = r*1.5;
+  const maxLines = r>28 ? 3 : r>17 ? 2 : 1;
+  let fontSize = Math.max(7, Math.min(16, r*0.34));
+  let lines = [];
+  // shrink to fit: reduce font size until the wrapped text fits inside the bead, down to a readable floor
+  while(fontSize >= 7){
+    ctx2d.font = `700 ${fontSize}px ${fontStack}`;
+    lines = wrapBallText(ctx2d, b.title||"", maxWidth, maxLines);
+    const lineH = fontSize*1.2;
+    if(lines.length*lineH <= maxHeight) break;
+    fontSize -= 1;
+  }
   ctx2d.font = `700 ${fontSize}px ${fontStack}`;
   ctx2d.textAlign = "center";
   ctx2d.textBaseline = "middle";
-  const maxWidth = r*1.5;
-  const maxLines = r>34 ? 3 : 2;
-  const lines = wrapBallText(ctx2d, b.title||"", maxWidth, maxLines);
   const lineH = fontSize*1.2;
   const startY = b.y - ((lines.length-1)*lineH)/2;
 
