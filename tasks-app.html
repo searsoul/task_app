@@ -462,7 +462,7 @@ function updateFabZone(){
   fabZone = {
     x: fabRect.left + fabRect.width/2 - canvasRect.left,
     y: fabRect.top + fabRect.height/2 - canvasRect.top,
-    r: fabRect.width/2 + 24
+    r: fabRect.width/2 + 10
   };
 }
 window.addEventListener("resize", ()=>{ resizeCanvas(); updateFabZone(); });
@@ -578,8 +578,8 @@ function stepPhysics(){
     if(Math.abs(b.vx) < 0.08) b.vx = 0;
     if(Math.abs(b.vy) < 0.08) b.vy = 0;
 
-    // keep balls clear of the FAB button so it stays tappable
-    if(fabZone){
+    // keep balls clear of the FAB button so it stays tappable — but not once a bead has already settled on the floor
+    if(fabZone && b.y + b.r < jar.bottom - 3){
       const fdx=b.x-fabZone.x, fdy=b.y-fabZone.y;
       const fdist=Math.hypot(fdx,fdy);
       const fmin=fabZone.r+b.r;
@@ -595,7 +595,7 @@ function stepPhysics(){
     }
   }
   // ball-ball collisions — mass-aware (glass marbles: bigger = heavier), 2 solver passes for stability
-  for(let iter=0; iter<4; iter++){
+  for(let iter=0; iter<6; iter++){
     for(let i=0;i<balls.length;i++){
       for(let j=i+1;j<balls.length;j++){
         const a=balls[i], b=balls[j];
