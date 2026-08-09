@@ -421,14 +421,14 @@ function resizeCanvas(){
   W = rect.width; H = rect.height;
   canvas.width = Math.round(W*DPR); canvas.height = Math.round(H*DPR);
   ctx2d.setTransform(DPR,0,0,DPR,0,0);
-  const padX = Math.max(14, W*0.05);
+  const padX = Math.max(10, W*0.035);
   jar.topLeftX = padX; jar.topRightX = W-padX;
   const topWidth = jar.topRightX - jar.topLeftX;
   jar.stemH = 46; jar.baseGap = 14; jar.baseRX = Math.min(46, topWidth*0.16); jar.baseRY = 7;
   const topPad = 30, bottomPad = 22;
   const fixedBelowBowl = jar.stemH + jar.baseGap + jar.baseRY + bottomPad;
   const availableForBowl = H - topPad - fixedBelowBowl;
-  const bowlH = Math.min(availableForBowl, topWidth*1.15); // wide, shallow-ish bowl — real glass, not a tall funnel
+  const bowlH = Math.min(availableForBowl, topWidth*1.4); // bigger volume, still reads as a glass, not a funnel
   jar.top = topPad + Math.max(0, (availableForBowl - bowlH)*0.5);
   jar.bottom = jar.top + bowlH;
   // bottom of the bowl must stay comfortably wider than the biggest bead that can appear
@@ -467,10 +467,10 @@ window.addEventListener("resize", ()=>{ resizeCanvas(); updateFabZone(); });
 
 function radiusForSize(size){
   const jw = jar.right-jar.left;
-  const base = Math.max(20, Math.min(46, jw*0.115));
-  if(size===1) return base*0.72;
-  if(size===3) return base*1.32;
-  return base;
+  const base = Math.max(15, Math.min(32, jw*0.082));
+  if(size===1) return base*0.7;
+  if(size===3) return base*1.3;
+  return base*0.95;
 }
 
 function jarArea(){
@@ -536,18 +536,18 @@ function rebuildBallsFromData(){
   });
 }
 
-const GRAVITY = 0.62;
-const DAMP = 0.985;
+const GRAVITY = 0.52;
+const DAMP = 0.978;
 const RESTITUTION_WALL = 0.6;
 const FRICTION_WALL = 0.95;
 const RESTITUTION_BALL = 0.42;
-const FILL_LIMIT = 0.68; // доля площади чаши, которую разрешаем занимать шариками
+const FILL_LIMIT = 0.74; // доля площади чаши, которую разрешаем занимать шариками
 let queue = []; // id дел, ожидающих места в банке
 let lastClinkTime = 0;
 
 function stepPhysics(){
   for(const b of balls){
-    if(b.popping) continue;
+    if(b.popping || b.sleeping) continue;
     b.vy += GRAVITY;
     b.x += b.vx; b.y += b.vy;
     b.vx *= DAMP; b.vy *= DAMP;
@@ -555,19 +555,26 @@ function stepPhysics(){
     // bottom
     if(b.y + b.r > jar.bottom){
       b.y = jar.bottom - b.r;
-      if(b.vy>0){ if(b.vy>1) playGlassClink(b.vy); b.vy *= -RESTITUTION_WALL; }
-      b.vx *= FRICTION_WALL;
+      if(b.vy>0){
+        if(b.vy < 2.2){ b.vy = 0; } // low-speed rest: stop instead of micro-bouncing forever
+        else { if(b.vy>1) playGlassClink(b.vy); b.vy *= -RESTITUTION_WALL; }
+      }
+      if(Math.abs(b.vx) < 0.1) b.vx = 0; else b.vx *= FRICTION_WALL;
     }
     // far safety ceiling only (lets queued balls drop in from just above the rim)
     if(b.y - b.r < jar.top - 500){ b.y = jar.top - 500 + b.r; if(b.vy<0) b.vy *= -0.3; }
     // slanted left / right walls of the cone — position depends on height
     const lx = leftWallX(b.y), rx = rightWallX(b.y);
-    if(b.x - b.r < lx){ b.x = lx + b.r; if(Math.abs(b.vx)>1) playGlassClink(Math.abs(b.vx)); b.vx *= -RESTITUTION_WALL; }
-    if(b.x + b.r > rx){ b.x = rx - b.r; if(Math.abs(b.vx)>1) playGlassClink(Math.abs(b.vx)); b.vx *= -RESTITUTION_WALL; }
+    if(b.x - b.r < lx){ b.x = lx + b.r; if(Math.abs(b.vx)<1.4){ b.vx=0; } else { playGlassClink(Math.abs(b.vx)); b.vx *= -RESTITUTION_WALL; } }
+    if(b.x + b.r > rx){ b.x = rx - b.r; if(Math.abs(b.vx)<1.4){ b.vx=0; } else { playGlassClink(Math.abs(b.vx)); b.vx *= -RESTITUTION_WALL; } }
 
     // rounded bottom corners of the cone's flat base
     cornerConstrain(b, jar.bottomLeftX+jar.rc, jar.bottom-jar.rc, jar.rc, -1, 1);
     cornerConstrain(b, jar.bottomRightX-jar.rc, jar.bottom-jar.rc, jar.rc, 1, 1);
+
+    // global sleep safety net: kill any leftover micro-velocity so nothing can jitter forever
+    if(Math.abs(b.vx) < 0.08) b.vx = 0;
+    if(Math.abs(b.vy) < 0.08) b.vy = 0;
 
     // keep balls clear of the FAB button so it stays tappable
     if(fabZone){
@@ -592,6 +599,8 @@ function stepPhysics(){
         let dist=Math.hypot(dx,dy);
         const minDist=a.r+b.r;
         if(dist<minDist){
+          if(a.sleeping){ a.sleeping=false; a.restFrames=0; }
+          if(b.sleeping){ b.sleeping=false; b.restFrames=0; }
           if(dist<0.001){ dist=0.001; }
           const nx=dx/dist, ny=dy/dist;
           const ma = a.r*a.r, mb = b.r*b.r; // mass proportional to area
@@ -602,8 +611,9 @@ function stepPhysics(){
           const avn=a.vx*nx+a.vy*ny, bvn=b.vx*nx+b.vy*ny;
           const rel=bvn-avn;
           if(rel<0){
+            const usedRestitution = (-rel < 1.2) ? 0 : RESTITUTION_BALL;
             if(iter===0 && -rel>1.4) playGlassClink(-rel);
-            const impulse=-(1+RESTITUTION_BALL)*rel/(1/ma+1/mb);
+            const impulse=-(1+usedRestitution)*rel/(1/ma+1/mb);
             a.vx -= (impulse/ma)*nx; a.vy -= (impulse/ma)*ny;
             b.vx += (impulse/mb)*nx; b.vy += (impulse/mb)*ny;
           }
@@ -611,6 +621,20 @@ function stepPhysics(){
       }
     }
   }
+
+  // sleep pass: if a ball has been almost still for a while, freeze it completely
+  // (fixes eternal micro-jitter for beads resting on top of other beads, not the floor)
+  for(const b of balls){
+    if(b.popping || b.sleeping) continue;
+    const speed = Math.abs(b.vx) + Math.abs(b.vy);
+    if(speed < 0.06){
+      b.restFrames = (b.restFrames||0) + 1;
+      if(b.restFrames > 18){ b.sleeping = true; b.vx = 0; b.vy = 0; }
+    } else {
+      b.restFrames = 0;
+    }
+  }
+
   trySpawnFromQueue();
   // popping animation
   for(const b of balls){
@@ -640,7 +664,10 @@ function cornerConstrain(b, cx, cy, rc, sx, sy){
       const nx=dx/dist, ny=dy/dist;
       b.x = cx+nx*maxDist; b.y = cy+ny*maxDist;
       const vn = b.vx*nx+b.vy*ny;
-      if(vn>0){ b.vx -= vn*nx*1.4; b.vy -= vn*ny*1.4; }
+      if(vn>0){
+        if(vn<1.6){ b.vx=0; b.vy=0; }
+        else { b.vx -= vn*nx*1.4; b.vy -= vn*ny*1.4; }
+      }
     }
   }
 }
@@ -717,7 +744,7 @@ function drawJar(){
     ctx2d.beginPath(); ctx2d.arc(b.x,b.y,r,0,Math.PI*2); ctx2d.fill();
 
     // 2. text written on that back wall
-    if(!b.popping && r>15){
+    if(!b.popping && r>9){
       drawBallText(b, r, alpha);
     }
 
@@ -1016,6 +1043,7 @@ function triggerShake(){
   if(!balls.length && !queue.length){ showToast("Резервуар пуст"); return; }
   balls.forEach(b=>{
     if(b.popping) return;
+    b.sleeping = false; b.restFrames = 0;
     b.vx += (Math.random()-0.5)*14;
     b.vy += -(4+Math.random()*7);
   });
