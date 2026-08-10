@@ -426,21 +426,20 @@ function resizeCanvas(){
   const padX = Math.max(10, W*0.035);
   jar.topLeftX = padX; jar.topRightX = W-padX;
   const topWidth = jar.topRightX - jar.topLeftX;
-  jar.stemH = 46; jar.baseGap = 14; jar.baseRX = Math.min(46, topWidth*0.16); jar.baseRY = 7;
+  jar.stemH = 56; jar.baseGap = 8; jar.baseRX = Math.min(46, topWidth*0.16); jar.baseRY = 7;
   const topPad = 30, bottomPad = 22;
   const fixedBelowBowl = jar.stemH + jar.baseGap + jar.baseRY + bottomPad;
   const availableForBowl = H - topPad - fixedBelowBowl;
-  const bowlH = Math.min(availableForBowl, topWidth*1.4); // bigger volume, still reads as a glass, not a funnel
+  const bowlH = Math.min(availableForBowl, topWidth*0.85); // classic wide martini-glass proportion, not a tall funnel
   jar.top = topPad + Math.max(0, (availableForBowl - bowlH)*0.5);
   jar.bottom = jar.top + bowlH;
   // bottom of the bowl must stay comfortably wider than the biggest bead that can appear
-  const bottomWidth = Math.max(topWidth*0.52, 190);
+  const bottomWidth = Math.max(topWidth*0.14, 46);
   const cx = (jar.topLeftX+jar.topRightX)/2;
   jar.bottomLeftX = cx - bottomWidth/2;
   jar.bottomRightX = cx + bottomWidth/2;
-  jar.rc = Math.min(18, bottomWidth*0.16); // modest corner rounding — leaves a real flat edge at the bottom
-  jar.bulge = 0; // straight cone sides, no outward curve
-  jar.bulge = topWidth*0.07; // outward curve of the bowl walls
+  jar.rc = Math.min(7, bottomWidth*0.2); // near-sharp point — a real cone, not a rounded cup
+  jar.bulge = 0; // straight cone sides, no outward curve — this was accidentally overwritten before
   // kept for code that still reads a simple left/right (fab zone math, etc.) — top edge is the widest point
   jar.left = jar.topLeftX; jar.right = jar.topRightX;
 }
@@ -558,7 +557,7 @@ function stepPhysics(){
     if(b.y + b.r > jar.bottom){
       b.y = jar.bottom - b.r;
       if(b.vy>0){
-        if(b.vy < 2.2){ b.vy = 0; } // low-speed rest: stop instead of micro-bouncing forever
+        if(b.vy < 3){ b.vy = 0; } // low-speed rest: stop instead of micro-bouncing forever
         else { if(b.vy>1) playGlassClink(b.vy); b.vy *= -RESTITUTION_WALL; }
       }
       if(Math.abs(b.vx) < 0.1) b.vx = 0; else b.vx *= FRICTION_WALL;
@@ -567,8 +566,8 @@ function stepPhysics(){
     if(b.y - b.r < jar.top - 500){ b.y = jar.top - 500 + b.r; if(b.vy<0) b.vy *= -0.3; }
     // slanted left / right walls of the cone — position depends on height
     const lx = leftWallX(b.y), rx = rightWallX(b.y);
-    if(b.x - b.r < lx){ b.x = lx + b.r; if(Math.abs(b.vx)<1.4){ b.vx=0; } else { playGlassClink(Math.abs(b.vx)); b.vx *= -RESTITUTION_WALL; } }
-    if(b.x + b.r > rx){ b.x = rx - b.r; if(Math.abs(b.vx)<1.4){ b.vx=0; } else { playGlassClink(Math.abs(b.vx)); b.vx *= -RESTITUTION_WALL; } }
+    if(b.x - b.r < lx){ b.x = lx + b.r; if(Math.abs(b.vx)<2){ b.vx=0; } else { playGlassClink(Math.abs(b.vx)); b.vx *= -RESTITUTION_WALL; } }
+    if(b.x + b.r > rx){ b.x = rx - b.r; if(Math.abs(b.vx)<2){ b.vx=0; } else { playGlassClink(Math.abs(b.vx)); b.vx *= -RESTITUTION_WALL; } }
 
     // rounded bottom corners of the cone's flat base
     cornerConstrain(b, jar.bottomLeftX+jar.rc, jar.bottom-jar.rc, jar.rc, -1, 1);
@@ -588,7 +587,7 @@ function stepPhysics(){
         b.x += fnx*(fmin-fdist); b.y += fny*(fmin-fdist);
         const fvn=b.vx*fnx+b.vy*fny;
         if(fvn<0){
-          if(-fvn < 1.4){ b.vx=0; b.vy=0; }
+          if(-fvn < 2){ b.vx=0; b.vy=0; }
           else { b.vx -= fvn*fnx*1.3; b.vy -= fvn*fny*1.3; }
         }
       }
@@ -604,6 +603,11 @@ function stepPhysics(){
         let dist=Math.hypot(dx,dy);
         const minDist=a.r+b.r;
         if(dist<minDist){
+          const meaningfulOverlap = (minDist-dist) > 0.4;
+          const eitherMoving = (Math.abs(a.vx)+Math.abs(a.vy) > 0.15) || (Math.abs(b.vx)+Math.abs(b.vy) > 0.15);
+          if((a.sleeping || b.sleeping) && !meaningfulOverlap && !eitherMoving){
+            continue; // stable resting contact involving a settled bead — leave it completely alone
+          }
           if(a.sleeping){ a.sleeping=false; a.restFrames=0; }
           if(b.sleeping){ b.sleeping=false; b.restFrames=0; }
           if(dist<0.001){ dist=0.001; }
@@ -616,7 +620,7 @@ function stepPhysics(){
           const avn=a.vx*nx+a.vy*ny, bvn=b.vx*nx+b.vy*ny;
           const rel=bvn-avn;
           if(rel<0){
-            const usedRestitution = (-rel < 1.2) ? 0 : RESTITUTION_BALL;
+            const usedRestitution = (-rel < 2) ? 0 : RESTITUTION_BALL;
             if(iter===0 && -rel>1.4) playGlassClink(-rel);
             const impulse=-(1+usedRestitution)*rel/(1/ma+1/mb);
             a.vx -= (impulse/ma)*nx; a.vy -= (impulse/ma)*ny;
@@ -632,9 +636,9 @@ function stepPhysics(){
   for(const b of balls){
     if(b.popping || b.sleeping) continue;
     const speed = Math.abs(b.vx) + Math.abs(b.vy);
-    if(speed < 0.06){
+    if(speed < 0.12){
       b.restFrames = (b.restFrames||0) + 1;
-      if(b.restFrames > 18){ b.sleeping = true; b.vx = 0; b.vy = 0; }
+      if(b.restFrames > 10){ b.sleeping = true; b.vx = 0; b.vy = 0; }
     } else {
       b.restFrames = 0;
     }
@@ -670,7 +674,7 @@ function cornerConstrain(b, cx, cy, rc, sx, sy){
       b.x = cx+nx*maxDist; b.y = cy+ny*maxDist;
       const vn = b.vx*nx+b.vy*ny;
       if(vn>0){
-        if(vn<1.6){ b.vx=0; b.vy=0; }
+        if(vn<2.2){ b.vx=0; b.vy=0; }
         else { b.vx -= vn*nx*1.4; b.vy -= vn*ny*1.4; }
       }
     }
@@ -912,55 +916,61 @@ function roundedJarPath(c, inset){
 }
 function drawGlassStem(){
   const cx = (jar.bottomLeftX+jar.bottomRightX)/2;
-  const neckTopY = jar.bottom; // flush with the flat bottom edge of the cone
-  const wTop = Math.max(6, jar.bottomRightX - jar.rc - cx); // matches the flat edge's own half-width — a real line, not a point
-  const neckBottomY = neckTopY + 26;
-  const stemBottomY = neckTopY + jar.stemH;
-  const baseY = stemBottomY + jar.baseGap;
-  const wMid = 5, wBase = 8;
+  const apexY = jar.bottom; // the bowl's own point — the gem starts right here, no thin neck
+  const gemW = Math.max(90, (jar.bottomRightX-jar.bottomLeftX)*1.35);
+  const halfW = gemW/2;
+  const topY = apexY - 2; // slight overlap into the bowl so the join is invisible
+  const shoulderY = topY + jar.stemH*0.35;
+  const equatorY = topY + jar.stemH*0.58;
+  const bottomY = topY + jar.stemH;
 
-  const grad = ctx2d.createLinearGradient(cx-wTop,0,cx+wTop,0);
-  grad.addColorStop(0,"rgba(255,255,255,0.04)");
-  grad.addColorStop(0.5,"rgba(255,255,255,0.13)");
-  grad.addColorStop(1,"rgba(255,255,255,0.04)");
-
+  // faceted gem silhouette: point at top, flares out to a wide equator, tapers to a flat base
   ctx2d.beginPath();
-  ctx2d.moveTo(cx-wTop, neckTopY);
-  ctx2d.quadraticCurveTo(cx-wMid, neckBottomY, cx-wMid, stemBottomY);
-  ctx2d.lineTo(cx-wBase, baseY);
-  ctx2d.lineTo(cx+wBase, baseY);
-  ctx2d.lineTo(cx+wMid, stemBottomY);
-  ctx2d.quadraticCurveTo(cx+wMid, neckBottomY, cx+wTop, neckTopY);
+  ctx2d.moveTo(cx, topY);
+  ctx2d.lineTo(cx-halfW*0.42, shoulderY);
+  ctx2d.lineTo(cx-halfW, equatorY);
+  ctx2d.lineTo(cx-halfW*0.6, bottomY);
+  ctx2d.lineTo(cx+halfW*0.6, bottomY);
+  ctx2d.lineTo(cx+halfW, equatorY);
+  ctx2d.lineTo(cx+halfW*0.42, shoulderY);
   ctx2d.closePath();
+
+  const grad = ctx2d.createLinearGradient(cx-halfW, 0, cx+halfW, 0);
+  grad.addColorStop(0, "rgba(255,255,255,0.06)");
+  grad.addColorStop(0.28, "rgba(255,255,255,0.32)");
+  grad.addColorStop(0.5, "rgba(255,255,255,0.48)");
+  grad.addColorStop(0.72, "rgba(255,255,255,0.28)");
+  grad.addColorStop(1, "rgba(255,255,255,0.06)");
   ctx2d.fillStyle = grad;
   ctx2d.fill();
-  ctx2d.strokeStyle = "rgba(243,236,227,0.22)";
-  ctx2d.lineWidth = 1;
+  ctx2d.strokeStyle = "rgba(243,236,227,0.42)";
+  ctx2d.lineWidth = 1.3;
   ctx2d.stroke();
 
-  // base disc
-  const rx = jar.baseRX, ry = jar.baseRY;
-  const baseGrad = ctx2d.createLinearGradient(cx, baseY-ry, cx, baseY+ry);
-  baseGrad.addColorStop(0, "rgba(255,255,255,0.22)");
-  baseGrad.addColorStop(1, "rgba(255,255,255,0.05)");
+  // facet lines — a few cut lines radiating from the top point, like a real cut-crystal base
+  ctx2d.strokeStyle = "rgba(255,255,255,0.32)";
+  ctx2d.lineWidth = 1;
+  [ [cx-halfW*0.42, shoulderY], [cx-halfW*0.75, equatorY], [cx, equatorY+4], [cx+halfW*0.75, equatorY], [cx+halfW*0.42, shoulderY] ].forEach(([x,y])=>{
+    ctx2d.beginPath(); ctx2d.moveTo(cx, topY); ctx2d.lineTo(x, y); ctx2d.stroke();
+  });
+  ctx2d.beginPath(); ctx2d.moveTo(cx-halfW*0.6, bottomY); ctx2d.lineTo(cx-halfW, equatorY); ctx2d.stroke();
+  ctx2d.beginPath(); ctx2d.moveTo(cx+halfW*0.6, bottomY); ctx2d.lineTo(cx+halfW, equatorY); ctx2d.stroke();
+
+  // bright facet highlight
   ctx2d.beginPath();
-  ctx2d.ellipse(cx, baseY, rx, ry, 0, 0, Math.PI*2);
-  ctx2d.fillStyle = baseGrad;
-  ctx2d.fill();
-  ctx2d.strokeStyle = "rgba(243,236,227,0.38)";
-  ctx2d.lineWidth = 1.4;
-  ctx2d.stroke();
-  ctx2d.beginPath();
-  ctx2d.ellipse(cx-rx*0.32, baseY-ry*0.28, rx*0.32, ry*0.32, -0.3, 0, Math.PI*2);
-  ctx2d.fillStyle = "rgba(255,255,255,0.22)";
+  ctx2d.moveTo(cx-halfW*0.15, topY+3);
+  ctx2d.lineTo(cx-halfW*0.5, equatorY-3);
+  ctx2d.lineTo(cx-halfW*0.25, equatorY-3);
+  ctx2d.closePath();
+  ctx2d.fillStyle = "rgba(255,255,255,0.35)";
   ctx2d.fill();
 
   // soft shadow the base casts on the "table"
-  const shGrad = ctx2d.createRadialGradient(cx, baseY+ry+2, 2, cx, baseY+ry+2, rx*1.6);
-  shGrad.addColorStop(0, "rgba(0,0,0,0.32)");
+  const shGrad = ctx2d.createRadialGradient(cx, bottomY+3, 2, cx, bottomY+3, halfW*1.3);
+  shGrad.addColorStop(0, "rgba(0,0,0,0.35)");
   shGrad.addColorStop(1, "rgba(0,0,0,0)");
   ctx2d.fillStyle = shGrad;
-  ctx2d.beginPath(); ctx2d.ellipse(cx, baseY+ry+2, rx*1.6, ry*1.8, 0,0,Math.PI*2); ctx2d.fill();
+  ctx2d.beginPath(); ctx2d.ellipse(cx, bottomY+4, halfW*1.3, 12, 0, 0, Math.PI*2); ctx2d.fill();
 }
 function hexToRgb(hex){ const h=hex.replace("#",""); return [parseInt(h.substr(0,2),16),parseInt(h.substr(2,2),16),parseInt(h.substr(4,2),16)]; }
 function lighten(hex,amt){ const [r,g,b]=hexToRgb(hex); return `rgb(${Math.min(255,r+amt)},${Math.min(255,g+amt)},${Math.min(255,b+amt)})`; }
