@@ -430,11 +430,11 @@ function resizeCanvas(){
   const topPad = 30, bottomPad = 22;
   const fixedBelowBowl = jar.stemH + jar.baseGap + jar.baseRY + bottomPad;
   const availableForBowl = H - topPad - fixedBelowBowl;
-  const bowlH = Math.min(availableForBowl, topWidth*0.85); // classic wide martini-glass proportion, not a tall funnel
-  jar.top = topPad + Math.max(0, (availableForBowl - bowlH)*0.5);
+  const bowlH = Math.min(availableForBowl, topWidth*1.55); // deeper — more room for beads to stack, still a clean cone
+  jar.top = topPad + Math.max(0, (availableForBowl - bowlH)*0.12);
   jar.bottom = jar.top + bowlH;
   // bottom of the bowl must stay comfortably wider than the biggest bead that can appear
-  const bottomWidth = Math.max(topWidth*0.14, 46);
+  const bottomWidth = Math.max(topWidth*0.22, 72);
   const cx = (jar.topLeftX+jar.topRightX)/2;
   jar.bottomLeftX = cx - bottomWidth/2;
   jar.bottomRightX = cx + bottomWidth/2;
@@ -482,6 +482,7 @@ function jarArea(){
 function usedArea(){ return balls.reduce((s,b)=> s + Math.PI*b.r*b.r, 0); }
 
 function spawnBallForTask(task, dropIn){
+  quietFrames = 0;
   const r = radiusForSize(task.size);
   const x = jar.left + r + Math.random()*Math.max(1,(jar.right-jar.left-2*r));
   const y = dropIn ? (jar.top - r - 12) : (jar.top + r + Math.random()*20);
@@ -545,6 +546,7 @@ const RESTITUTION_BALL = 0.42;
 const FILL_LIMIT = 0.74; // доля площади чаши, которую разрешаем занимать шариками
 let queue = []; // id дел, ожидающих места в банке
 let lastClinkTime = 0;
+let quietFrames = 0; // frames since the last real interaction (add/pop/shake) — used for a hard settle guarantee
 
 function stepPhysics(){
   for(const b of balls){
@@ -631,10 +633,31 @@ function stepPhysics(){
     }
   }
 
+  // final containment pass — after all ball-ball pushing, make sure nothing ever visually escapes the glass.
+  // Critically: also kill velocity in the escaping direction, or the un-cancelled speed re-triggers a real
+  // bounce next frame instead of fading — this was the actual source of the endless jitter.
+  for(const b of balls){
+    if(b.popping) continue;
+    if(b.y + b.r > jar.bottom){ b.y = jar.bottom - b.r; if(b.vy>0) b.vy = 0; }
+    const lx2 = leftWallX(b.y), rx2 = rightWallX(b.y);
+    if(b.x - b.r < lx2){ b.x = lx2 + b.r; if(b.vx<0) b.vx = 0; }
+    if(b.x + b.r > rx2){ b.x = rx2 - b.r; if(b.vx>0) b.vx = 0; }
+  }
+
   // sleep pass: if a ball has been almost still for a while, freeze it completely
   // (fixes eternal micro-jitter for beads resting on top of other beads, not the floor)
+  let maxActiveSpeed = 0;
   for(const b of balls){
     if(b.popping || b.sleeping) continue;
+    const sp = Math.abs(b.vx) + Math.abs(b.vy);
+    if(sp > maxActiveSpeed) maxActiveSpeed = sp;
+  }
+  if(maxActiveSpeed > 2.5) quietFrames = 0; // something is still genuinely falling/bouncing — don't count this as quiet
+  else quietFrames++;
+  const hardSettle = quietFrames > 40; // ~0.65s with nothing added/popped/shaken — force a full, unconditional stop
+  for(const b of balls){
+    if(b.popping || b.sleeping) continue;
+    if(hardSettle){ b.sleeping = true; b.vx = 0; b.vy = 0; continue; }
     const speed = Math.abs(b.vx) + Math.abs(b.vy);
     if(speed < 0.12){
       b.restFrames = (b.restFrames||0) + 1;
@@ -847,7 +870,7 @@ function drawBallText(b, r, alpha){
   const fontStack = `"Noteworthy","Chalkboard SE","Marker Felt",-apple-system,system-ui,sans-serif`;
   const maxWidth = r*1.5;
   const maxHeight = r*1.5;
-  const maxLines = r>28 ? 3 : r>17 ? 2 : 1;
+  const maxLines = r>24 ? 3 : r>9 ? 2 : 1;
   let fontSize = Math.max(7, Math.min(16, r*0.34));
   let lines = [];
   // shrink to fit: reduce font size until the wrapped text fits inside the bead, down to a readable floor
@@ -858,7 +881,9 @@ function drawBallText(b, r, alpha){
     if(lines.length*lineH <= maxHeight) break;
     fontSize -= 1;
   }
+  fontSize = Math.max(6, fontSize);
   ctx2d.font = `700 ${fontSize}px ${fontStack}`;
+  lines = wrapBallText(ctx2d, b.title||"", maxWidth, maxLines);
   ctx2d.textAlign = "center";
   ctx2d.textBaseline = "middle";
   const lineH = fontSize*1.2;
@@ -1022,6 +1047,7 @@ function ballAt(x,y){
 
 function popBall(ball, opts){
   opts = opts||{};
+  quietFrames = 0;
   if(ball.popping) return;
   ball.popping = true; ball.popT = 0;
   for(let i=0;i<10;i++){
@@ -1064,6 +1090,7 @@ function shuffleQueueIntoJar(){
 }
 
 function triggerShake(){
+  quietFrames = 0;
   if(!balls.length && !queue.length){ showToast("Резервуар пуст"); return; }
   balls.forEach(b=>{
     if(b.popping) return;
